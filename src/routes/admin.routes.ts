@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { actualizarEstadoCita, actualizarServicio, actualizarTrabajador, crearServicio, crearTrabajador, guardarDisponibilidad, listarCitas, listarServicios, listarTrabajadores } from "../controllers/admin.controller";
+import { actualizarCliente, actualizarEstadoCita, actualizarServicio, actualizarTrabajador, crearServicio, crearTrabajador, guardarDisponibilidad, listarCitas, listarClientes, listarServicios, listarTrabajadores } from "../controllers/admin.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { checkRole } from "../middlewares/role.middleware";
 
@@ -14,5 +14,7 @@ router.put("/trabajadores/:id", actualizarTrabajador);
 router.put("/trabajadores/:id/disponibilidad", guardarDisponibilidad);
 router.get("/citas", listarCitas);
 router.put("/citas/:id/estado", actualizarEstadoCita);
+router.get("/clientes", listarClientes);
+router.put("/clientes/:id", actualizarCliente);
 
 export default router;

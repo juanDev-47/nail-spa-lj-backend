@@ -1,8 +1,10 @@
 import { Request, Response } from "express";
+import bcrypt from "bcryptjs";
+import { randomUUID } from "crypto";
 import { user_role } from "@prisma/client";
 import prisma from "../config/prisma";
 import { CrearCitaBody } from "../types/cita.types";
-import { aIsoUtc, esFechaIsoUtc, parsearFechaIsoUtc } from "../utils/date.util";
+import { aIsoUtc, comoFechaBogota, esFechaIsoUtc, fechaBogotaAUtc, horaBogota, minutosBogota, parsearFechaIsoUtc } from "../utils/date.util";
 
 const MINUTOS_EN_MS = 60_000;
 const INTERVALO_RESERVA_MINUTOS = 20;
@@ -10,8 +12,8 @@ const INICIO_ALMUERZO_MINUTOS = 13 * 60;
 const FIN_ALMUERZO_MINUTOS = 13 * 60 + 30;
 
 function seCruzaConAlmuerzo(inicio: Date, fin: Date): boolean {
-  const inicioMinutos = inicio.getUTCHours() * 60 + inicio.getUTCMinutes();
-  const finMinutos = fin.getUTCHours() * 60 + fin.getUTCMinutes();
+  const inicioMinutos = minutosBogota(inicio);
+  const finMinutos = minutosBogota(fin);
   return inicioMinutos < FIN_ALMUERZO_MINUTOS && finMinutos > INICIO_ALMUERZO_MINUTOS;
 }
 
@@ -55,16 +57,17 @@ export async function disponibilidad(req: Request, res: Response): Promise<void>
     return;
   }
 
-  const inicioDia = new Date(`${fecha}T00:00:00.000Z`);
-  const finDia = new Date(`${fecha}T23:59:59.999Z`);
-  const hoy = new Date(new Date().toISOString().slice(0, 10));
-  if (Number.isNaN(inicioDia.getTime()) || inicioDia < hoy) {
+  const inicioDia = fechaBogotaAUtc(fecha, "00:00");
+  const finDia = new Date(inicioDia.getTime() + 24 * 60 * 60 * 1000 - 1);
+  const hoy = comoFechaBogota(new Date()).toISOString().slice(0, 10);
+  if (Number.isNaN(inicioDia.getTime()) || inicioDia < fechaBogotaAUtc(hoy, "00:00")) {
     res.status(400).json({ message: "La fecha debe ser valida y no puede estar en el pasado" });
     return;
   }
 
+  const fechaLocal = new Date(`${fecha}T00:00:00.000Z`);
   const disponibilidadLaboral = await prisma.disponibilidadTrabajador.findUnique({
-    where: { trabajador_id_dia_semana: { trabajador_id: trabajadorId, dia_semana: inicioDia.getUTCDay() } },
+    where: { trabajador_id_dia_semana: { trabajador_id: trabajadorId, dia_semana: fechaLocal.getUTCDay() } },
   });
   if (!disponibilidadLaboral) {
     res.json({ fecha, horarios: [] });
@@ -80,15 +83,15 @@ export async function disponibilidad(req: Request, res: Response): Promise<void>
     },
     select: { fecha_hora_inicio: true, fecha_hora_fin: true },
   });
-  const inicioLaboral = Date.UTC(inicioDia.getUTCFullYear(), inicioDia.getUTCMonth(), inicioDia.getUTCDate(), disponibilidadLaboral.hora_inicio.getUTCHours(), disponibilidadLaboral.hora_inicio.getUTCMinutes());
-  const finLaboral = Date.UTC(inicioDia.getUTCFullYear(), inicioDia.getUTCMonth(), inicioDia.getUTCDate(), disponibilidadLaboral.hora_fin.getUTCHours(), disponibilidadLaboral.hora_fin.getUTCMinutes());
+  const inicioLaboral = fechaBogotaAUtc(fecha, disponibilidadLaboral.hora_inicio.toISOString().slice(11, 16)).getTime();
+  const finLaboral = fechaBogotaAUtc(fecha, disponibilidadLaboral.hora_fin.toISOString().slice(11, 16)).getTime();
   const horarios: string[] = [];
 
   for (let timestamp = inicioLaboral; timestamp + servicio.duracion_minutos * MINUTOS_EN_MS <= finLaboral; timestamp += INTERVALO_RESERVA_MINUTOS * MINUTOS_EN_MS) {
     const inicio = new Date(timestamp);
     const fin = new Date(timestamp + servicio.duracion_minutos * MINUTOS_EN_MS);
     if (!seCruzaConAlmuerzo(inicio, fin) && !citas.some((cita) => inicio < cita.fecha_hora_fin && fin > cita.fecha_hora_inicio)) {
-      horarios.push(inicio.toISOString().slice(11, 16));
+      horarios.push(horaBogota(inicio));
     }
   }
   res.json({ fecha, horarios });
@@ -120,7 +123,9 @@ async function estaDentroDeHorarioLaboral(
   inicio: Date,
   fin: Date,
 ): Promise<boolean> {
-  const diaSemana = inicio.getUTCDay();
+  const inicioLocal = comoFechaBogota(inicio);
+  const finLocal = comoFechaBogota(fin);
+  const diaSemana = inicioLocal.getUTCDay();
 
   const disponibilidad = await prisma.disponibilidadTrabajador.findUnique({
     where: { trabajador_id_dia_semana: { trabajador_id: trabajadorId, dia_semana: diaSemana } },
@@ -131,16 +136,14 @@ async function estaDentroDeHorarioLaboral(
   }
 
   const mismoDia =
-    inicio.getUTCFullYear() === fin.getUTCFullYear() &&
-    inicio.getUTCMonth() === fin.getUTCMonth() &&
-    inicio.getUTCDate() === fin.getUTCDate();
+    inicioLocal.getUTCFullYear() === finLocal.getUTCFullYear() &&
+    inicioLocal.getUTCMonth() === finLocal.getUTCMonth() &&
+    inicioLocal.getUTCDate() === finLocal.getUTCDate();
 
-  const minutosDelDia = (fecha: Date) => fecha.getUTCHours() * 60 + fecha.getUTCMinutes();
-
-  const minutosInicioCita = minutosDelDia(inicio);
-  const minutosFinCita = minutosDelDia(fin);
-  const minutosInicioLaboral = minutosDelDia(disponibilidad.hora_inicio);
-  const minutosFinLaboral = minutosDelDia(disponibilidad.hora_fin);
+  const minutosInicioCita = minutosBogota(inicio);
+  const minutosFinCita = minutosBogota(fin);
+  const minutosInicioLaboral = disponibilidad.hora_inicio.getUTCHours() * 60 + disponibilidad.hora_inicio.getUTCMinutes();
+  const minutosFinLaboral = disponibilidad.hora_fin.getUTCHours() * 60 + disponibilidad.hora_fin.getUTCMinutes();
 
   return (
     mismoDia &&
@@ -213,12 +216,29 @@ export async function crearCita(req: Request, res: Response): Promise<void> {
     return;
   }
 
-  if (body.clienteId) {
-    const cliente = await prisma.usuario.findUnique({ where: { id: body.clienteId } });
-    if (!cliente) {
-      res.status(404).json({ message: "El clienteId indicado no existe" });
+  let clienteId = body.clienteId;
+  if (!clienteId) {
+    const correo = body.clienteCorreoAnonimo?.trim().toLowerCase();
+    const nombre = body.clienteNombreAnonimo?.trim();
+    if (!correo || !nombre) {
+      res.status(400).json({ message: "Nombre y correo del cliente son obligatorios" });
       return;
     }
+    const existente = await prisma.usuario.findUnique({ where: { correo } });
+    if (existente && existente.rol !== user_role.CLIENTE) {
+      res.status(409).json({ message: "El correo indicado pertenece a una cuenta interna" });
+      return;
+    }
+    const cliente = existente ?? await prisma.usuario.create({
+      data: {
+        nombre,
+        correo,
+        telefono: body.clienteTelefonoAnonimo?.trim() || null,
+        password_hash: await bcrypt.hash(randomUUID(), 10),
+        rol: user_role.CLIENTE,
+      },
+    });
+    clienteId = cliente.id;
   }
 
   const cita = await prisma.cita.create({
@@ -228,13 +248,10 @@ export async function crearCita(req: Request, res: Response): Promise<void> {
       fecha_hora_inicio: fechaHoraInicio,
       fecha_hora_fin: fechaHoraFin,
       notas: body.notas,
-      ...(body.clienteId
-        ? { cliente_id: body.clienteId }
-        : {
-            cliente_nombre_anonimo: body.clienteNombreAnonimo,
-            cliente_telefono_anonimo: body.clienteTelefonoAnonimo,
-            cliente_correo_anonimo: body.clienteCorreoAnonimo,
-          }),
+      cliente_id: clienteId,
+      cliente_nombre_anonimo: body.clienteNombreAnonimo,
+      cliente_telefono_anonimo: body.clienteTelefonoAnonimo,
+      cliente_correo_anonimo: body.clienteCorreoAnonimo,
     },
   });
 

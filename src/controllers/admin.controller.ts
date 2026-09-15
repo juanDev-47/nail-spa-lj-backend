@@ -145,3 +145,31 @@ export async function actualizarEstadoCita(req: Request, res: Response): Promise
   await prisma.cita.update({ where: { id }, data: { estado } });
   res.json({ id, estado });
 }
+
+export async function listarClientes(_req: Request, res: Response): Promise<void> {
+  const clientes = await prisma.usuario.findMany({
+    where: { rol: user_role.CLIENTE },
+    select: { id: true, nombre: true, correo: true, telefono: true, fecha_nacimiento: true },
+    orderBy: { nombre: "asc" },
+  });
+  res.json(clientes.map((cliente) => ({ ...cliente, fechaNacimiento: cliente.fecha_nacimiento?.toISOString().slice(0, 10) ?? null })));
+}
+
+export async function actualizarCliente(req: Request, res: Response): Promise<void> {
+  const id = Array.isArray(req.params.id) ? "" : req.params.id;
+  const { nombre, correo, telefono, fechaNacimiento } = req.body as Record<string, unknown>;
+  if (!id || typeof nombre !== "string" || !nombre.trim() || typeof correo !== "string" || !correo.trim() || (fechaNacimiento !== null && fechaNacimiento !== undefined && (typeof fechaNacimiento !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fechaNacimiento)))) {
+    res.status(400).json({ message: "Nombre y correo son obligatorios; el cumpleanos debe ser una fecha valida" });
+    return;
+  }
+  try {
+    const cliente = await prisma.usuario.update({
+      where: { id },
+      data: { nombre: nombre.trim(), correo: correo.trim().toLowerCase(), telefono: typeof telefono === "string" ? telefono.trim() || null : null, fecha_nacimiento: typeof fechaNacimiento === "string" && fechaNacimiento ? new Date(`${fechaNacimiento}T00:00:00.000Z`) : null },
+      select: { id: true, nombre: true, correo: true, telefono: true, fecha_nacimiento: true },
+    });
+    res.json({ ...cliente, fechaNacimiento: cliente.fecha_nacimiento?.toISOString().slice(0, 10) ?? null });
+  } catch {
+    res.status(409).json({ message: "No se pudo actualizar: verifica que el correo no este en uso" });
+  }
+}

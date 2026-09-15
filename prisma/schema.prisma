@@ -25,6 +25,7 @@ model Usuario {
   correo         String    @unique @db.VarChar(100)
   password_hash  String    @db.VarChar(255)
   telefono       String?   @db.VarChar(20)
+  fecha_nacimiento DateTime? @db.Date
   rol            user_role @default(CLIENTE)
   fecha_creacion DateTime  @default(now())
 
