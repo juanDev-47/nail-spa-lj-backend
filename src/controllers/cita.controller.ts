@@ -1,0 +1,248 @@
+import { Request, Response } from "express";
+import { user_role } from "@prisma/client";
+import prisma from "../config/prisma";
+import { CrearCitaBody } from "../types/cita.types";
+import { aIsoUtc, esFechaIsoUtc, parsearFechaIsoUtc } from "../utils/date.util";
+
+const MINUTOS_EN_MS = 60_000;
+const INTERVALO_RESERVA_MINUTOS = 20;
+const INICIO_ALMUERZO_MINUTOS = 13 * 60;
+const FIN_ALMUERZO_MINUTOS = 13 * 60 + 30;
+
+function seCruzaConAlmuerzo(inicio: Date, fin: Date): boolean {
+  const inicioMinutos = inicio.getUTCHours() * 60 + inicio.getUTCMinutes();
+  const finMinutos = fin.getUTCHours() * 60 + fin.getUTCMinutes();
+  return inicioMinutos < FIN_ALMUERZO_MINUTOS && finMinutos > INICIO_ALMUERZO_MINUTOS;
+}
+
+export async function catalogoReserva(_req: Request, res: Response): Promise<void> {
+  const [servicios, trabajadores] = await Promise.all([
+    prisma.servicio.findMany({ where: { activo: true }, orderBy: { nombre: "asc" } }),
+    prisma.usuario.findMany({
+      where: { rol: user_role.TRABAJADOR },
+      select: { id: true, nombre: true },
+      orderBy: { nombre: "asc" },
+    }),
+  ]);
+
+  res.json({
+    servicios: servicios.map((servicio) => ({
+      id: servicio.id,
+      nombre: servicio.nombre,
+      descripcion: servicio.descripcion,
+      duracionMinutos: servicio.duracion_minutos,
+      precio: Number(servicio.precio),
+    })),
+    trabajadores,
+  });
+}
+
+export async function disponibilidad(req: Request, res: Response): Promise<void> {
+  const servicioId = Number(req.query.servicioId);
+  const trabajadorId = typeof req.query.trabajadorId === "string" ? req.query.trabajadorId : "";
+  const fecha = typeof req.query.fecha === "string" ? req.query.fecha : "";
+  if (!Number.isInteger(servicioId) || !trabajadorId || !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) {
+    res.status(400).json({ message: "servicioId, trabajadorId y fecha (YYYY-MM-DD) son obligatorios" });
+    return;
+  }
+
+  const [servicio, trabajador] = await Promise.all([
+    prisma.servicio.findFirst({ where: { id: servicioId, activo: true } }),
+    prisma.usuario.findFirst({ where: { id: trabajadorId, rol: user_role.TRABAJADOR } }),
+  ]);
+  if (!servicio || !trabajador) {
+    res.status(404).json({ message: "Servicio o trabajador no disponible" });
+    return;
+  }
+
+  const inicioDia = new Date(`${fecha}T00:00:00.000Z`);
+  const finDia = new Date(`${fecha}T23:59:59.999Z`);
+  const hoy = new Date(new Date().toISOString().slice(0, 10));
+  if (Number.isNaN(inicioDia.getTime()) || inicioDia < hoy) {
+    res.status(400).json({ message: "La fecha debe ser valida y no puede estar en el pasado" });
+    return;
+  }
+
+  const disponibilidadLaboral = await prisma.disponibilidadTrabajador.findUnique({
+    where: { trabajador_id_dia_semana: { trabajador_id: trabajadorId, dia_semana: inicioDia.getUTCDay() } },
+  });
+  if (!disponibilidadLaboral) {
+    res.json({ fecha, horarios: [] });
+    return;
+  }
+
+  const citas = await prisma.cita.findMany({
+    where: {
+      trabajador_id: trabajadorId,
+      estado: { not: "CANCELADA" },
+      fecha_hora_inicio: { lte: finDia },
+      fecha_hora_fin: { gt: inicioDia },
+    },
+    select: { fecha_hora_inicio: true, fecha_hora_fin: true },
+  });
+  const inicioLaboral = Date.UTC(inicioDia.getUTCFullYear(), inicioDia.getUTCMonth(), inicioDia.getUTCDate(), disponibilidadLaboral.hora_inicio.getUTCHours(), disponibilidadLaboral.hora_inicio.getUTCMinutes());
+  const finLaboral = Date.UTC(inicioDia.getUTCFullYear(), inicioDia.getUTCMonth(), inicioDia.getUTCDate(), disponibilidadLaboral.hora_fin.getUTCHours(), disponibilidadLaboral.hora_fin.getUTCMinutes());
+  const horarios: string[] = [];
+
+  for (let timestamp = inicioLaboral; timestamp + servicio.duracion_minutos * MINUTOS_EN_MS <= finLaboral; timestamp += INTERVALO_RESERVA_MINUTOS * MINUTOS_EN_MS) {
+    const inicio = new Date(timestamp);
+    const fin = new Date(timestamp + servicio.duracion_minutos * MINUTOS_EN_MS);
+    if (!seCruzaConAlmuerzo(inicio, fin) && !citas.some((cita) => inicio < cita.fecha_hora_fin && fin > cita.fecha_hora_inicio)) {
+      horarios.push(inicio.toISOString().slice(11, 16));
+    }
+  }
+  res.json({ fecha, horarios });
+}
+
+function validarBody(body: Partial<CrearCitaBody>): string | null {
+  if (typeof body.servicioId !== "number" || Number.isNaN(body.servicioId)) {
+    return "servicioId es obligatorio y debe ser numérico";
+  }
+
+  if (!body.trabajadorId) {
+    return "trabajadorId es obligatorio";
+  }
+
+  if (!esFechaIsoUtc(body.fechaHoraInicio)) {
+    return "fechaHoraInicio es obligatoria y debe ser ISO 8601 en UTC (ej: 2026-09-20T15:30:00.000Z)";
+  }
+
+  if (!body.clienteId && !body.clienteNombreAnonimo) {
+    return "Debe indicarse clienteId o, para clientes anónimos, clienteNombreAnonimo";
+  }
+
+  return null;
+}
+
+/** Verifica que el rango [inicio, fin) caiga dentro del bloque laboral del día correspondiente. */
+async function estaDentroDeHorarioLaboral(
+  trabajadorId: string,
+  inicio: Date,
+  fin: Date,
+): Promise<boolean> {
+  const diaSemana = inicio.getUTCDay();
+
+  const disponibilidad = await prisma.disponibilidadTrabajador.findUnique({
+    where: { trabajador_id_dia_semana: { trabajador_id: trabajadorId, dia_semana: diaSemana } },
+  });
+
+  if (!disponibilidad) {
+    return false;
+  }
+
+  const mismoDia =
+    inicio.getUTCFullYear() === fin.getUTCFullYear() &&
+    inicio.getUTCMonth() === fin.getUTCMonth() &&
+    inicio.getUTCDate() === fin.getUTCDate();
+
+  const minutosDelDia = (fecha: Date) => fecha.getUTCHours() * 60 + fecha.getUTCMinutes();
+
+  const minutosInicioCita = minutosDelDia(inicio);
+  const minutosFinCita = minutosDelDia(fin);
+  const minutosInicioLaboral = minutosDelDia(disponibilidad.hora_inicio);
+  const minutosFinLaboral = minutosDelDia(disponibilidad.hora_fin);
+
+  return (
+    mismoDia &&
+    minutosInicioCita >= minutosInicioLaboral &&
+    minutosFinCita <= minutosFinLaboral
+  );
+}
+
+/** Réplica exacta de la consulta OVERLAPS de la sección 5 del SPEC. */
+async function existeSolapamiento(trabajadorId: string, inicio: Date, fin: Date): Promise<boolean> {
+  const resultado = await prisma.$queryRaw<{ count: bigint }[]>`
+    SELECT COUNT(*)::bigint AS count
+    FROM citas
+    WHERE trabajador_id = ${trabajadorId}::uuid
+      AND estado != 'CANCELADA'
+      AND (fecha_hora_inicio, fecha_hora_fin) OVERLAPS (${inicio}, ${fin})
+  `;
+
+  return Number(resultado[0]?.count ?? 0) > 0;
+}
+
+export async function crearCita(req: Request, res: Response): Promise<void> {
+  const body = req.body as Partial<CrearCitaBody>;
+
+  const errorValidacion = validarBody(body);
+  if (errorValidacion) {
+    res.status(400).json({ message: errorValidacion });
+    return;
+  }
+
+  const { servicioId, trabajadorId, fechaHoraInicio: fechaHoraInicioRaw } = body as CrearCitaBody;
+  const fechaHoraInicio = parsearFechaIsoUtc(fechaHoraInicioRaw);
+
+  const servicio = await prisma.servicio.findUnique({ where: { id: servicioId } });
+
+  if (!servicio || !servicio.activo) {
+    res.status(404).json({ message: "El servicio indicado no existe o no está activo" });
+    return;
+  }
+
+  const trabajador = await prisma.usuario.findUnique({ where: { id: trabajadorId } });
+
+  if (!trabajador || trabajador.rol !== user_role.TRABAJADOR) {
+    res.status(404).json({ message: "El trabajador indicado no existe" });
+    return;
+  }
+
+  const fechaHoraFin = new Date(fechaHoraInicio.getTime() + servicio.duracion_minutos * MINUTOS_EN_MS);
+
+  if (seCruzaConAlmuerzo(fechaHoraInicio, fechaHoraFin)) {
+    res.status(400).json({
+      message: "El horario solicitado se cruza con el descanso de almuerzo de 13:00 a 13:30",
+    });
+    return;
+  }
+
+  const dentroDeHorario = await estaDentroDeHorarioLaboral(trabajadorId, fechaHoraInicio, fechaHoraFin);
+  if (!dentroDeHorario) {
+    res.status(400).json({
+      message: "El horario solicitado está fuera de la disponibilidad laboral del trabajador",
+    });
+    return;
+  }
+
+  const haySolapamiento = await existeSolapamiento(trabajadorId, fechaHoraInicio, fechaHoraFin);
+  if (haySolapamiento) {
+    res.status(400).json({
+      message: "El trabajador ya tiene una cita asignada que se cruza con ese horario",
+    });
+    return;
+  }
+
+  if (body.clienteId) {
+    const cliente = await prisma.usuario.findUnique({ where: { id: body.clienteId } });
+    if (!cliente) {
+      res.status(404).json({ message: "El clienteId indicado no existe" });
+      return;
+    }
+  }
+
+  const cita = await prisma.cita.create({
+    data: {
+      trabajador_id: trabajadorId,
+      servicio_id: servicioId,
+      fecha_hora_inicio: fechaHoraInicio,
+      fecha_hora_fin: fechaHoraFin,
+      notas: body.notas,
+      ...(body.clienteId
+        ? { cliente_id: body.clienteId }
+        : {
+            cliente_nombre_anonimo: body.clienteNombreAnonimo,
+            cliente_telefono_anonimo: body.clienteTelefonoAnonimo,
+            cliente_correo_anonimo: body.clienteCorreoAnonimo,
+          }),
+    },
+  });
+
+  // Serialización explícita: nunca depender del formato por defecto de Date en JSON.
+  res.status(201).json({
+    ...cita,
+    fecha_hora_inicio: aIsoUtc(cita.fecha_hora_inicio),
+    fecha_hora_fin: aIsoUtc(cita.fecha_hora_fin),
+    fecha_creacion: aIsoUtc(cita.fecha_creacion),
+  });
+}

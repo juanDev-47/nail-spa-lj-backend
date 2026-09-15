@@ -1,0 +1,84 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum user_role {
+  CLIENTE
+  TRABAJADOR
+  ADMIN
+}
+
+enum appointment_status {
+  PENDIENTE
+  CONFIRMADA
+  COMPLETADA
+  CANCELADA
+}
+
+model Usuario {
+  id             String    @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  nombre         String    @db.VarChar(100)
+  correo         String    @unique @db.VarChar(100)
+  password_hash  String    @db.VarChar(255)
+  telefono       String?   @db.VarChar(20)
+  rol            user_role @default(CLIENTE)
+  fecha_creacion DateTime  @default(now())
+
+  disponibilidad      DisponibilidadTrabajador[]
+  citasComoCliente    Cita[]                     @relation("ClienteCitas")
+  citasComoTrabajador Cita[]                     @relation("TrabajadorCitas")
+
+  @@map("usuarios")
+}
+
+model Servicio {
+  id               Int     @id @default(autoincrement())
+  nombre           String  @db.VarChar(100)
+  descripcion      String? @db.Text
+  duracion_minutos Int
+  precio           Decimal @db.Decimal(10, 2)
+  activo           Boolean @default(true)
+
+  citas Cita[]
+
+  @@map("servicios")
+}
+
+model DisponibilidadTrabajador {
+  id            Int      @id @default(autoincrement())
+  trabajador_id String   @db.Uuid
+  dia_semana    Int
+  hora_inicio   DateTime @db.Time
+  hora_fin      DateTime @db.Time
+
+  trabajador Usuario @relation(fields: [trabajador_id], references: [id], onDelete: Cascade)
+
+  @@unique([trabajador_id, dia_semana])
+  @@map("disponibilidad_trabajadores")
+}
+
+model Cita {
+  id                       String             @id @default(dbgenerated("uuid_generate_v4()")) @db.Uuid
+  cliente_id               String?            @db.Uuid
+  cliente_nombre_anonimo   String?            @db.VarChar(100)
+  cliente_telefono_anonimo String?            @db.VarChar(20)
+  cliente_correo_anonimo   String?            @db.VarChar(100)
+  trabajador_id            String             @db.Uuid
+  servicio_id              Int
+  fecha_hora_inicio        DateTime           @db.Timestamptz
+  fecha_hora_fin           DateTime           @db.Timestamptz
+  estado                   appointment_status @default(PENDIENTE)
+  notas                    String?            @db.Text
+  fecha_creacion           DateTime           @default(now())
+
+  cliente    Usuario? @relation("ClienteCitas", fields: [cliente_id], references: [id], onDelete: SetNull)
+  trabajador Usuario  @relation("TrabajadorCitas", fields: [trabajador_id], references: [id], onDelete: Restrict)
+  servicio   Servicio @relation(fields: [servicio_id], references: [id], onDelete: Restrict)
+
+  @@index([trabajador_id, fecha_hora_inicio, fecha_hora_fin], name: "idx_citas_rango")
+  @@map("citas")
+}
