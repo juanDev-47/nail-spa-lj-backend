@@ -1,0 +1,84 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Transform: AWS::Serverless-2016-10-31
+Description: Nail Spa LJ - API (Lambda + Function URL) y keep-alive de la BD con EventBridge Scheduler
+
+Parameters:
+  FrontStackName:
+    Type: String
+    Default: nails-front
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+  JwtSecret:
+    Type: String
+    NoEcho: true
+  JwtExpiresIn:
+    Type: String
+    Default: 8h
+  KeepAliveRate:
+    Type: String
+    Default: rate(3 days)
+    Description: Debe ser menor a 7 días (pausa por inactividad del plan gratuito de Supabase)
+
+Resources:
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../dist-lambda/
+      Handler: lambda.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 512
+      Timeout: 30
+      FunctionUrlConfig:
+        AuthType: NONE
+      Environment:
+        Variables:
+          NODE_ENV: production
+          DATABASE_URL: !Ref DatabaseUrl
+          JWT_SECRET: !Ref JwtSecret
+          JWT_EXPIRES_IN: !Ref JwtExpiresIn
+          FRONTEND_ORIGIN:
+            Fn::ImportValue: !Sub "${FrontStackName}-SiteOrigin"
+
+  # Requerido en cuentas nuevas además de InvokeFunctionUrl
+  ApiFunctionUrlInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ApiFunction
+      Action: lambda:InvokeFunction
+      Principal: "*"
+      InvokedViaFunctionUrl: true
+
+  KeepAliveRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: scheduler.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: invoke-api
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !GetAtt ApiFunction.Arn
+
+  KeepAliveSchedule:
+    Type: AWS::Scheduler::Schedule
+    Properties:
+      ScheduleExpression: !Ref KeepAliveRate
+      FlexibleTimeWindow:
+        Mode: "OFF"
+      Target:
+        Arn: !GetAtt ApiFunction.Arn
+        RoleArn: !GetAtt KeepAliveRole.Arn
+        Input: '{"keepAlive": true}'
+
+Outputs:
+  ApiUrl:
+    Description: Usar como variable API_URL del front (sin slash final)
+    Value: !GetAtt ApiFunctionUrl.FunctionUrl

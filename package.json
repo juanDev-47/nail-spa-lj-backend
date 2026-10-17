@@ -18,7 +18,8 @@
     "create:admin": "tsx src/scripts/create-admin.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build:lambda": "esbuild src/lambda.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist-lambda/lambda.js"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
@@ -28,14 +29,17 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
-    "pg": "^8.13.1"
+    "pg": "^8.13.1",
+    "serverless-http": "^4.0.0"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.164",
     "@types/bcryptjs": "^2.4.6",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/node": "^26.5.1",
+    "esbuild": "^0.28.2",
     "prisma": "7.10.0",
     "tsx": "^4.23.13",
     "typescript": "^7.0.2"

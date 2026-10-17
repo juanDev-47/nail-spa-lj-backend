@@ -1,0 +1,58 @@
+name: Deploy API
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency: deploy-api
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - run: npm ci
+
+      - name: Typecheck y bundle
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+        run: |
+          npx prisma generate
+          npm run typecheck
+          npm run build:lambda
+
+      - name: Migraciones
+        run: npx prisma migrate deploy
+        env:
+          DIRECT_URL: ${{ secrets.DIRECT_URL }}
+
+      - uses: aws-actions/setup-sam@v2
+
+      - name: Deploy
+        run: |
+          sam deploy \
+            --template-file infra/template.yaml \
+            --stack-name nails-api \
+            --resolve-s3 \
+            --capabilities CAPABILITY_IAM \
+            --no-confirm-changeset \
+            --no-fail-on-empty-changeset \
+            --parameter-overrides \
+              DatabaseUrl="${{ secrets.DATABASE_URL }}" \
+              JwtSecret="${{ secrets.JWT_SECRET }}"
