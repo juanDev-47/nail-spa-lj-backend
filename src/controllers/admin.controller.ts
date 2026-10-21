@@ -177,14 +177,14 @@ export async function listarClientes(_req: Request, res: Response): Promise<void
 export async function actualizarCliente(req: Request, res: Response): Promise<void> {
   const id = Array.isArray(req.params.id) ? "" : req.params.id;
   const { nombre, correo, telefono, fechaNacimiento } = req.body as Record<string, unknown>;
-  if (!id || typeof nombre !== "string" || !nombre.trim() || typeof correo !== "string" || !correo.trim() || (fechaNacimiento !== null && fechaNacimiento !== undefined && (typeof fechaNacimiento !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fechaNacimiento)))) {
-    res.status(400).json({ message: "Nombre y correo son obligatorios; el cumpleanos debe ser una fecha valida" });
+  if (!id || typeof nombre !== "string" || !nombre.trim() || (correo !== null && correo !== undefined && typeof correo !== "string") || (fechaNacimiento !== null && fechaNacimiento !== undefined && (typeof fechaNacimiento !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(fechaNacimiento)))) {
+    res.status(400).json({ message: "El nombre es obligatorio; el cumpleanos debe ser una fecha valida" });
     return;
   }
   try {
     const cliente = await prisma.usuario.update({
       where: { id },
-      data: { nombre: nombre.trim(), correo: correo.trim().toLowerCase(), telefono: typeof telefono === "string" ? telefono.trim() || null : null, fecha_nacimiento: typeof fechaNacimiento === "string" && fechaNacimiento ? new Date(`${fechaNacimiento}T00:00:00.000Z`) : null },
+      data: { nombre: nombre.trim(), correo: typeof correo === "string" ? correo.trim().toLowerCase() || null : null, telefono: typeof telefono === "string" ? telefono.trim() || null : null, fecha_nacimiento: typeof fechaNacimiento === "string" && fechaNacimiento ? new Date(`${fechaNacimiento}T00:00:00.000Z`) : null },
       select: { id: true, nombre: true, correo: true, telefono: true, fecha_nacimiento: true },
     });
     res.json({ ...cliente, fechaNacimiento: cliente.fecha_nacimiento?.toISOString().slice(0, 10) ?? null });

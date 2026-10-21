@@ -218,22 +218,18 @@ export async function crearCita(req: Request, res: Response): Promise<void> {
 
   let clienteId = body.clienteId;
   if (!clienteId) {
-    const correo = body.clienteCorreoAnonimo?.trim().toLowerCase();
     const nombre = body.clienteNombreAnonimo?.trim();
-    if (!correo || !nombre) {
-      res.status(400).json({ message: "Nombre y correo del cliente son obligatorios" });
+    const telefono = body.clienteTelefonoAnonimo?.trim();
+    if (!nombre || !telefono) {
+      res.status(400).json({ message: "Nombre y telefono del cliente son obligatorios" });
       return;
     }
-    const existente = await prisma.usuario.findUnique({ where: { correo } });
-    if (existente && existente.rol !== user_role.CLIENTE) {
-      res.status(409).json({ message: "El correo indicado pertenece a una cuenta interna" });
-      return;
-    }
+    // Sin correo, el telefono identifica al cliente recurrente.
+    const existente = await prisma.usuario.findFirst({ where: { telefono, rol: user_role.CLIENTE } });
     const cliente = existente ?? await prisma.usuario.create({
       data: {
         nombre,
-        correo,
-        telefono: body.clienteTelefonoAnonimo?.trim() || null,
+        telefono,
         password_hash: await bcrypt.hash(randomUUID(), 10),
         rol: user_role.CLIENTE,
       },
@@ -251,7 +247,6 @@ export async function crearCita(req: Request, res: Response): Promise<void> {
       cliente_id: clienteId,
       cliente_nombre_anonimo: body.clienteNombreAnonimo,
       cliente_telefono_anonimo: body.clienteTelefonoAnonimo,
-      cliente_correo_anonimo: body.clienteCorreoAnonimo,
     },
   });
 

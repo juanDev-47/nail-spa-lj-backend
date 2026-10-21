@@ -45,7 +45,7 @@ export async function login(req: Request, res: Response): Promise<void> {
   }
 
   try {
-    const token = firmarToken(usuario);
+    const token = firmarToken({ id: usuario.id, correo, rol: usuario.rol });
     res.status(200).json({
       token,
       usuario: {
