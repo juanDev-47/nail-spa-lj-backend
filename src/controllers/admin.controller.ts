@@ -35,6 +35,24 @@ export async function actualizarServicio(req: Request, res: Response): Promise<v
   }
 }
 
+export async function eliminarServicio(req: Request, res: Response): Promise<void> {
+  const id = Number(req.params.id);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ message: "Servicio invalido" });
+    return;
+  }
+  if (!(await prisma.servicio.findUnique({ where: { id } }))) {
+    res.status(404).json({ message: "Servicio no encontrado" });
+    return;
+  }
+  if ((await prisma.cita.count({ where: { servicio_id: id } })) > 0) {
+    res.status(409).json({ message: "No se puede eliminar: el servicio tiene reservas asociadas. Desactivalo para ocultarlo." });
+    return;
+  }
+  await prisma.servicio.delete({ where: { id } });
+  res.status(204).send();
+}
+
 export async function listarTrabajadores(_req: Request, res: Response): Promise<void> {
   const trabajadores = await prisma.usuario.findMany({
     where: { rol: user_role.TRABAJADOR },
@@ -107,7 +125,7 @@ export async function actualizarTrabajador(req: Request, res: Response): Promise
 export async function listarCitas(_req: Request, res: Response): Promise<void> {
   const citas = await prisma.cita.findMany({
     include: {
-      servicio: { select: { nombre: true } },
+      servicio: { select: { nombre: true, precio: true } },
       trabajador: { select: { nombre: true } },
     },
     orderBy: { fecha_hora_inicio: "desc" },
@@ -117,6 +135,7 @@ export async function listarCitas(_req: Request, res: Response): Promise<void> {
     clienteNombre: cita.cliente_nombre_anonimo ?? "Cliente registrado",
     clienteTelefono: cita.cliente_telefono_anonimo,
     servicio: cita.servicio.nombre,
+    precio: Number(cita.servicio.precio),
     trabajadora: cita.trabajador.nombre,
     inicio: cita.fecha_hora_inicio.toISOString(),
     fin: cita.fecha_hora_fin.toISOString(),

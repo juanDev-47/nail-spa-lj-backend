@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { actualizarCliente, actualizarEstadoCita, actualizarServicio, actualizarTrabajador, crearServicio, crearTrabajador, guardarDisponibilidad, listarCitas, listarClientes, listarServicios, listarTrabajadores } from "../controllers/admin.controller";
+import { actualizarCliente, actualizarEstadoCita, actualizarServicio, actualizarTrabajador, crearServicio, crearTrabajador, eliminarServicio, guardarDisponibilidad, listarCitas, listarClientes, listarServicios, listarTrabajadores } from "../controllers/admin.controller";
 import { authMiddleware } from "../middlewares/auth.middleware";
 import { checkRole } from "../middlewares/role.middleware";
 
@@ -8,6 +8,7 @@ router.use(authMiddleware, checkRole(["ADMIN"]));
 router.get("/servicios", listarServicios);
 router.post("/servicios", crearServicio);
 router.put("/servicios/:id", actualizarServicio);
+router.delete("/servicios/:id", eliminarServicio);
 router.get("/trabajadores", listarTrabajadores);
 router.post("/trabajadores", crearTrabajador);
 router.put("/trabajadores/:id", actualizarTrabajador);
