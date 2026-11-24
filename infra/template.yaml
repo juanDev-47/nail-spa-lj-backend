@@ -18,7 +18,7 @@ Parameters:
   WhatsappAccessToken:
     Type: String
     NoEcho: true
-    Default: ""
+    Default: NOT_CONFIGURED
   KeepAliveRate:
     Type: String
     Default: rate(3 days)

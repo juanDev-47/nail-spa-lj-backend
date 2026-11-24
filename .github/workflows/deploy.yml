@@ -48,6 +48,10 @@ jobs:
         env:
           WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
         run: |
+          if [ -z "$WHATSAPP_ACCESS_TOKEN" ]; then
+            echo "::warning::WHATSAPP_ACCESS_TOKEN no configurado; los mensajes de WhatsApp no se enviaran."
+            WHATSAPP_ACCESS_TOKEN="NOT_CONFIGURED"
+          fi
           sam deploy \
             --template-file infra/template.yaml \
             --stack-name nails-api \

@@ -58,3 +58,16 @@ test("reporta fallos de Meta y respuestas sin aceptacion", async (t) => {
   fetchMock.mock.mockImplementation(async () => new Response("{}", { status: 200 }));
   await assert.rejects(enviarConfirmacionWhatsapp(datos), /no confirmó/);
 });
+
+test("no envia mensajes con el token temporal", async (t) => {
+  configurarEntorno(t);
+  process.env.WHATSAPP_ACCESS_TOKEN = "NOT_CONFIGURED";
+  const fetchMock = t.mock.method(globalThis, "fetch", async () => {
+    throw new Error("No debe llamar a Meta");
+  });
+  await assert.rejects(
+    enviarConfirmacionWhatsapp({ telefono: "573001234567", nombre: "Ana", servicio: "Manicure", inicio: new Date() }),
+    /Falta configurar/,
+  );
+  assert.equal(fetchMock.mock.callCount(), 0);
+});

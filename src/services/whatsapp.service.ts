@@ -18,7 +18,7 @@ export async function enviarConfirmacionWhatsapp(datos: {
 }): Promise<void> {
   const token = process.env.WHATSAPP_ACCESS_TOKEN?.trim();
   const imagen = process.env.WHATSAPP_IMAGE_URL?.trim();
-  if (!token || !imagen || !/^https:\/\//i.test(imagen)) {
+  if (!token || token === "NOT_CONFIGURED" || !imagen || !/^https:\/\//i.test(imagen)) {
     throw new Error("Falta configurar el token o la URL HTTPS de la imagen de WhatsApp");
   }
 

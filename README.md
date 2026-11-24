@@ -23,6 +23,8 @@ Configura `WHATSAPP_ACCESS_TOKEN` como secreto del servidor con permiso `whatsap
 
 Para AWS, agrega el secreto `WHATSAPP_ACCESS_TOKEN` al repositorio de GitHub del backend; el despliegue usa la imagen publicada por el frontend en `/assets/LOGO_SPA.jpeg`. Publica el frontend con esa imagen antes de activar la integracion. Ejecuta las migraciones Prisma antes de desplegar el backend. En local, configura ambas variables en el entorno del backend.
 
+Si el secreto de GitHub aun no esta configurado, el despliegue usa el marcador temporal `NOT_CONFIGURED` y muestra una advertencia. Las citas se guardan, pero no se envia ningun mensaje de WhatsApp y la clienta recibe el aviso correspondiente. Para activar los envios, configura el secreto real y vuelve a desplegar.
+
 La respuesta de creacion incluye `confirmacionWhatsapp`: `aceptada` significa que Meta acepto la solicitud, no que el mensaje se entrego; `no_confirmada` indica fallo o resultado incierto. En ese caso la cita sigue guardada, se informa a la clienta y se registra el identificador de la cita sin datos personales ni token. No hay reintentos automaticos ni webhooks de entrega: una interrupcion o tiempo de espera puede dejar el resultado incierto y debe revisarse antes de reenviar.
 
 ## Comandos
