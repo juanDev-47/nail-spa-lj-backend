@@ -7,5 +7,6 @@ export interface CrearCitaBody {
   clienteNombreAnonimo?: string;
   clienteTelefonoAnonimo?: string;
   clienteCorreoAnonimo?: string;
+  consentimientoWhatsapp: boolean;
   notas?: string;
 }

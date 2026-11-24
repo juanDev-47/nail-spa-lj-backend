@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import { user_role } from "@prisma/client";
 import prisma from "../config/prisma";
 import { CrearCitaBody } from "../types/cita.types";
+import { enviarConfirmacionWhatsapp, telefonoColombiano } from "../services/whatsapp.service";
 import { aIsoUtc, comoFechaBogota, esFechaIsoUtc, fechaBogotaAUtc, horaBogota, minutosBogota, parsearFechaIsoUtc } from "../utils/date.util";
 
 const MINUTOS_EN_MS = 60_000;
@@ -114,6 +115,10 @@ function validarBody(body: Partial<CrearCitaBody>): string | null {
     return "Debe indicarse clienteId o, para clientes anónimos, clienteNombreAnonimo";
   }
 
+  if (body.consentimientoWhatsapp !== true) {
+    return "Debes autorizar la confirmación de la cita por WhatsApp";
+  }
+
   return null;
 }
 
@@ -217,8 +222,23 @@ export async function crearCita(req: Request, res: Response): Promise<void> {
   }
 
   let clienteId = body.clienteId;
+  let nombreConfirmacion = body.clienteNombreAnonimo?.trim();
+  let telefonoConfirmacion = telefonoColombiano(body.clienteTelefonoAnonimo);
+  if (clienteId) {
+    const cliente = await prisma.usuario.findFirst({ where: { id: clienteId, rol: user_role.CLIENTE } });
+    if (!cliente) {
+      res.status(404).json({ message: "El cliente indicado no existe" });
+      return;
+    }
+    nombreConfirmacion = nombreConfirmacion || cliente.nombre;
+    telefonoConfirmacion = telefonoColombiano(body.clienteTelefonoAnonimo ?? cliente.telefono);
+  }
+  if (!nombreConfirmacion || !telefonoConfirmacion) {
+    res.status(400).json({ message: "Indica tu nombre y un celular colombiano válido para WhatsApp" });
+    return;
+  }
   if (!clienteId) {
-    const nombre = body.clienteNombreAnonimo?.trim();
+    const nombre = nombreConfirmacion;
     const telefono = body.clienteTelefonoAnonimo?.trim();
     if (!nombre || !telefono) {
       res.status(400).json({ message: "Nombre y telefono del cliente son obligatorios" });
@@ -247,12 +267,32 @@ export async function crearCita(req: Request, res: Response): Promise<void> {
       cliente_id: clienteId,
       cliente_nombre_anonimo: body.clienteNombreAnonimo,
       cliente_telefono_anonimo: body.clienteTelefonoAnonimo,
+      consentimiento_whatsapp: new Date(),
     },
   });
+
+  let confirmacionWhatsapp: "aceptada" | "no_confirmada" = "aceptada";
+  try {
+    await enviarConfirmacionWhatsapp({
+      telefono: telefonoConfirmacion,
+      nombre: nombreConfirmacion,
+      servicio: servicio.nombre,
+      inicio: cita.fecha_hora_inicio,
+    });
+  } catch (error) {
+    confirmacionWhatsapp = "no_confirmada";
+    console.error("No se pudo confirmar el envío de WhatsApp", {
+      citaId: cita.id,
+      motivo: error instanceof Error && (
+        error.message.startsWith("Meta ") || error.message.startsWith("Falta configurar")
+      ) ? error.message : "Error de conexión o tiempo de espera",
+    });
+  }
 
   // Serialización explícita: nunca depender del formato por defecto de Date en JSON.
   res.status(201).json({
     ...cita,
+    confirmacionWhatsapp,
     fecha_hora_inicio: aIsoUtc(cita.fecha_hora_inicio),
     fecha_hora_fin: aIsoUtc(cita.fecha_hora_fin),
     fecha_creacion: aIsoUtc(cita.fecha_creacion),

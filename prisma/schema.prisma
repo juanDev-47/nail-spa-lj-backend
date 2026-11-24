@@ -68,6 +68,7 @@ model Cita {
   cliente_nombre_anonimo   String?            @db.VarChar(100)
   cliente_telefono_anonimo String?            @db.VarChar(20)
   cliente_correo_anonimo   String?            @db.VarChar(100)
+  consentimiento_whatsapp DateTime?          @db.Timestamptz
   trabajador_id            String             @db.Uuid
   servicio_id              Int
   fecha_hora_inicio        DateTime           @db.Timestamptz

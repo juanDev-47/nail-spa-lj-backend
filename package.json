@@ -18,7 +18,7 @@
     "create:admin": "tsx src/scripts/create-admin.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node -r tsx/cjs --test test/*.test.cjs",
     "build:lambda": "esbuild src/lambda.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist-lambda/lambda.js"
   },
   "dependencies": {

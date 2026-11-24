@@ -15,6 +15,10 @@ Parameters:
   JwtExpiresIn:
     Type: String
     Default: 8h
+  WhatsappAccessToken:
+    Type: String
+    NoEcho: true
+    Default: ""
   KeepAliveRate:
     Type: String
     Default: rate(3 days)
@@ -38,6 +42,12 @@ Resources:
           DATABASE_URL: !Ref DatabaseUrl
           JWT_SECRET: !Ref JwtSecret
           JWT_EXPIRES_IN: !Ref JwtExpiresIn
+          WHATSAPP_ACCESS_TOKEN: !Ref WhatsappAccessToken
+          WHATSAPP_IMAGE_URL:
+            Fn::Join:
+              - ""
+              - - Fn::ImportValue: !Sub "${FrontStackName}-SiteOrigin"
+                - "/assets/LOGO_SPA.jpeg"
           FRONTEND_ORIGIN:
             Fn::ImportValue: !Sub "${FrontStackName}-SiteOrigin"
 

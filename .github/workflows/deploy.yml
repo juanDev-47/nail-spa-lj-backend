@@ -45,6 +45,8 @@ jobs:
       - uses: aws-actions/setup-sam@v2
 
       - name: Deploy
+        env:
+          WHATSAPP_ACCESS_TOKEN: ${{ secrets.WHATSAPP_ACCESS_TOKEN }}
         run: |
           sam deploy \
             --template-file infra/template.yaml \
@@ -55,4 +57,5 @@ jobs:
             --no-fail-on-empty-changeset \
             --parameter-overrides \
               DatabaseUrl="${{ secrets.DATABASE_URL }}" \
-              JwtSecret="${{ secrets.JWT_SECRET }}"
+              JwtSecret="${{ secrets.JWT_SECRET }}" \
+              WhatsappAccessToken="$WHATSAPP_ACCESS_TOKEN"
